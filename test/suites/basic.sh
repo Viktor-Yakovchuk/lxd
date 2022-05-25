@@ -126,7 +126,11 @@ test_basic_usage() {
 
   # Test container copy
   lxc copy bar foo
+  lxc config device set foo eth0 ipv4.address=192.0.2.2
+  # Test container with static IP copy
+  lxc copy foo baz
   lxc delete foo
+  lxc delete baz
 
   # gen untrusted cert
   gen_cert client3
