@@ -36,10 +36,6 @@ type Device interface {
 	Config() deviceConfig.Device
 	Name() string
 
-	// Add performs any host-side setup when a device is added to an instance.
-	// It is called irrespective of whether the instance is running or not.
-	Add() error
-
 	// PreStartCheck indicates if the device is available for starting.
 	PreStartCheck() error
 
@@ -62,9 +58,6 @@ type Device interface {
 	// either due to unplugging it from a running instance or instance is being shutdown.
 	// Returns run-time configuration needed for detaching the device from the instance.
 	Stop() (*deviceConfig.RunConfig, error)
-
-	// Remove performs any host-side cleanup when a device is removed from an instance.
-	Remove() error
 }
 
 // device represents a sealed interface that implements Device, but also contains some internal

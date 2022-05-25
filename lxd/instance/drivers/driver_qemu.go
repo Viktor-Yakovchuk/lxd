@@ -269,25 +269,6 @@ func qemuCreate(s *state.State, args db.InstanceArgs) (instance.Instance, revert
 	}
 
 	if !d.IsSnapshot() {
-		// Add devices to instance.
-		for _, entry := range d.expandedDevices.Sorted() {
-			dev, err := d.deviceLoad(entry.Name, entry.Config)
-			if err != nil {
-				if errors.Is(err, device.ErrUnsupportedDevType) {
-					continue
-				}
-
-				return nil, nil, fmt.Errorf("Failed to load device to add %q: %w", entry.Name, err)
-			}
-
-			err = d.deviceAdd(dev, false)
-			if err != nil {
-				return nil, nil, fmt.Errorf("Failed to add device %q: %w", dev.Name(), err)
-			}
-
-			revert.Add(func() { _ = d.deviceRemove(dev, false) })
-		}
-
 		// Update MAAS (must run after the MAC addresses have been generated).
 		err = d.maasUpdate(d, nil)
 		if err != nil {
@@ -4752,7 +4733,7 @@ func (d *qemu) updateDevices(removeDevices deviceConfig.Devices, addDevices devi
 	// Remove devices in reverse order to how they were added.
 	for _, dd := range removeDevices.Reversed() {
 
-		dev, err := d.deviceLoad(dd.Name, dd.Config)
+		_, err := d.deviceLoad(dd.Name, dd.Config)
 		if err != nil {
 			// If deviceLoad fails with unsupported device type then skip stopping.
 			if errors.Is(err, device.ErrUnsupportedDevType) {
@@ -4764,21 +4745,6 @@ func (d *qemu) updateDevices(removeDevices deviceConfig.Devices, addDevices devi
 			// validation restrictions than older versions we still need to allow previously
 			// valid devices to be stopped.
 			d.logger.Error("Device stop validation failed", logger.Ctx{"devName": dd.Name, "err": err})
-		}
-
-		// If a device was returned from deviceLoad even if validation fails, then try and stop and remove.
-		if dev != nil {
-			if instanceRunning {
-				err = d.deviceStop(dev, instanceRunning)
-				if err != nil {
-					return fmt.Errorf("Failed to stop device %q: %w", dev.Name(), err)
-				}
-			}
-
-			err := d.deviceRemove(dev, instanceRunning)
-			if err != nil && err != device.ErrUnsupportedDevType {
-				return fmt.Errorf("Failed to remove device %q: %w", dev.Name(), err)
-			}
 		}
 
 		// Check whether we are about to add the same device back with updated config and
@@ -4808,19 +4774,6 @@ func (d *qemu) updateDevices(removeDevices deviceConfig.Devices, addDevices devi
 
 			continue
 		}
-
-		err = d.deviceAdd(dev, instanceRunning)
-		if err != nil {
-			if userRequested {
-				return fmt.Errorf("Failed to add device %q: %w", dev.Name(), err)
-			}
-
-			// If update is non-user requested (i.e from a snapshot restore), there's nothing we can
-			// do to fix the config and we don't want to prevent the snapshot restore so log and allow.
-			d.logger.Error("Failed to add device, skipping as non-user requested", logger.Ctx{"device": dev.Name(), "err": err})
-		}
-
-		revert.Add(func() { _ = d.deviceRemove(dev, instanceRunning) })
 
 		if instanceRunning {
 			err = dev.PreStartCheck()
@@ -5060,7 +5013,7 @@ func (d *qemu) Delete(force bool) error {
 
 		// Run device removal function for each device.
 		for _, entry := range d.expandedDevices.Reversed() {
-			dev, err := d.deviceLoad(entry.Name, entry.Config)
+			_, err := d.deviceLoad(entry.Name, entry.Config)
 			if err != nil {
 				// If deviceLoad fails with unsupported device type then skip removal.
 				if errors.Is(err, device.ErrUnsupportedDevType) {
@@ -5072,14 +5025,6 @@ func (d *qemu) Delete(force bool) error {
 				// validation restrictions than older versions we still need to allow previously
 				// valid devices to be remove.
 				d.logger.Error("Device remove validation failed", logger.Ctx{"device": entry.Name, "err": err})
-			}
-
-			// If a device was returned from deviceLoad even if validation fails, then try and remove.
-			if dev != nil {
-				err = d.deviceRemove(dev, false)
-				if err != nil {
-					d.logger.Error("Failed to remove device", logger.Ctx{"device": dev.Name(), "err": err})
-				}
 			}
 		}
 
@@ -5119,28 +5064,6 @@ func (d *qemu) Delete(force bool) error {
 	}
 
 	return nil
-}
-
-func (d *qemu) deviceAdd(dev device.Device, instanceRunning bool) error {
-	l := d.logger.AddContext(logger.Ctx{"device": dev.Name(), "type": dev.Config()["type"]})
-	l.Debug("Adding device")
-
-	if instanceRunning && !dev.CanHotPlug() {
-		return fmt.Errorf("Device cannot be added when instance is running")
-	}
-
-	return dev.Add()
-}
-
-func (d *qemu) deviceRemove(dev device.Device, instanceRunning bool) error {
-	l := d.logger.AddContext(logger.Ctx{"device": dev.Name(), "type": dev.Config()["type"]})
-	l.Debug("Removing device")
-
-	if instanceRunning && !dev.CanHotPlug() {
-		return fmt.Errorf("Device cannot be removed when instance is running")
-	}
-
-	return dev.Remove()
 }
 
 // Export publishes the instance.
