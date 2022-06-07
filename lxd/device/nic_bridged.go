@@ -382,6 +382,19 @@ func (d *nicBridged) PreStartCheck() error {
 	// Check there isn't another NIC with any of the same addresses specified on the same cluster member.
 	// Can only validate this when the instance is supplied (and not doing profile validation).
 	if d.inst != nil {
+
+		deviceStaticFileName := dnsmasq.StaticAllocationFileName(d.inst.Project(), d.inst.Name(), d.Name())
+		_, chekFileNonExistance := os.Stat(shared.VarPath("networks", d.config["parent"], "dnsmasq.hosts", deviceStaticFileName))
+
+		// Check if the device specific dnsmasq config file exists. If file doesn't exist its first start so we need to generate the dnsmasq config
+		if chekFileNonExistance != nil {
+			// Rebuild dnsmasq entry if needed and reload.
+			err := d.rebuildDnsmasqEntry()
+			if err != nil {
+				return err
+			}
+		}
+
 		node := d.inst.Location()
 		filter := db.InstanceFilter{
 			Node: &node, // Managed bridge networks have a per-server DHCP daemon.
