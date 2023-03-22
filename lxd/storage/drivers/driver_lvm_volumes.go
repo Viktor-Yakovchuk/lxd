@@ -154,12 +154,12 @@ func (d *lvm) CreateVolumeFromCopy(vol Volume, srcVol Volume, copySnapshots bool
 	}
 
 	// Otherwise run the generic copy.
-	return genericVFSCopyVolume(d, nil, vol, srcVol, srcSnapshots, false, allowInconsistent, op)
+	return genericVFSCopyVolume(d.state.OS, d, nil, vol, srcVol, srcSnapshots, false, allowInconsistent, op)
 }
 
 // CreateVolumeFromMigration creates a volume being sent via a migration.
 func (d *lvm) CreateVolumeFromMigration(vol Volume, conn io.ReadWriteCloser, volTargetArgs migration.VolumeTargetArgs, preFiller *VolumeFiller, op *operations.Operation) error {
-	return genericVFSCreateVolumeFromMigration(d, nil, vol, conn, volTargetArgs, preFiller, op)
+	return genericVFSCreateVolumeFromMigration(d.state.OS, d, nil, vol, conn, volTargetArgs, preFiller, op)
 }
 
 // RefreshVolume provides same-pool volume and specific snapshots syncing functionality.
@@ -170,7 +170,7 @@ func (d *lvm) RefreshVolume(vol Volume, srcVol Volume, srcSnapshots []Volume, al
 	}
 
 	// Otherwise run the generic copy.
-	return genericVFSCopyVolume(d, nil, vol, srcVol, srcSnapshots, true, allowInconsistent, op)
+	return genericVFSCopyVolume(d.state.OS, d, nil, vol, srcVol, srcSnapshots, true, allowInconsistent, op)
 }
 
 // DeleteVolume deletes a volume of the storage device. If any snapshots of the volume remain then this function
@@ -1269,7 +1269,7 @@ func (d *lvm) RestoreVolume(vol Volume, snapshotName string, op *operations.Oper
 			if snapVol.IsVMBlock() || snapVol.contentType == ContentTypeFS {
 				bwlimit := d.config["rsync.bwlimit"]
 				d.Logger().Debug("Copying fileystem volume", logger.Ctx{"sourcePath": srcMountPath, "targetPath": mountPath, "bwlimit": bwlimit})
-				_, err := rsync.LocalCopy(srcMountPath, mountPath, bwlimit, true)
+				_, err := rsync.LocalCopy(d.state.OS, srcMountPath, mountPath, bwlimit, true)
 				if err != nil {
 					return err
 				}

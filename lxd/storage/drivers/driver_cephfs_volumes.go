@@ -111,7 +111,7 @@ func (d *cephfs) CreateVolumeFromCopy(vol Volume, srcVol Volume, copySnapshots b
 				// Mount the source snapshot.
 				err = srcSnapshot.MountTask(func(srcMountPath string, op *operations.Operation) error {
 					// Copy the snapshot.
-					_, err = rsync.LocalCopy(srcMountPath, mountPath, bwlimit, false)
+					_, err = rsync.LocalCopy(d.state.OS, srcMountPath, mountPath, bwlimit, false)
 					return err
 				}, op)
 
@@ -134,7 +134,7 @@ func (d *cephfs) CreateVolumeFromCopy(vol Volume, srcVol Volume, copySnapshots b
 
 		// Copy source to destination (mounting each volume if needed).
 		err = srcVol.MountTask(func(srcMountPath string, op *operations.Operation) error {
-			_, err := rsync.LocalCopy(srcMountPath, mountPath, bwlimit, false)
+			_, err := rsync.LocalCopy(d.state.OS, srcMountPath, mountPath, bwlimit, false)
 			return err
 		}, op)
 		if err != nil {
@@ -196,7 +196,7 @@ func (d *cephfs) CreateVolumeFromMigration(vol Volume, conn io.ReadWriteCloser, 
 				wrapper = migration.ProgressTracker(op, "fs_progress", snapName)
 			}
 
-			err = rsync.Recv(path, conn, wrapper, volTargetArgs.MigrationType.Features)
+			err = rsync.Recv(d.state.OS, path, conn, wrapper, volTargetArgs.MigrationType.Features)
 			if err != nil {
 				return err
 			}
@@ -228,7 +228,7 @@ func (d *cephfs) CreateVolumeFromMigration(vol Volume, conn io.ReadWriteCloser, 
 			wrapper = migration.ProgressTracker(op, "fs_progress", vol.name)
 		}
 
-		return rsync.Recv(path, conn, wrapper, volTargetArgs.MigrationType.Features)
+		return rsync.Recv(d.state.OS, path, conn, wrapper, volTargetArgs.MigrationType.Features)
 	}, op)
 	if err != nil {
 		return err
@@ -560,7 +560,7 @@ func (d *cephfs) RestoreVolume(vol Volume, snapshotName string, op *operations.O
 
 	// Restore using rsync.
 	bwlimit := d.config["rsync.bwlimit"]
-	output, err := rsync.LocalCopy(cephSnapPath, vol.MountPath(), bwlimit, false)
+	output, err := rsync.LocalCopy(d.state.OS, cephSnapPath, vol.MountPath(), bwlimit, false)
 	if err != nil {
 		return fmt.Errorf("Failed to rsync volume: %s: %w", string(output), err)
 	}

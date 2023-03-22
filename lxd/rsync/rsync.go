@@ -1,4 +1,4 @@
-//go:build !linux || !cgo || agent
+//go:build linux && cgo && !agent
 
 package rsync
 
@@ -8,23 +8,24 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/pborman/uuid"
 
+	"github.com/lxc/lxd/lxd/apparmor"
+	"github.com/lxc/lxd/lxd/sys"
 	"github.com/lxc/lxd/shared"
 	"github.com/lxc/lxd/shared/ioprogress"
 	"github.com/lxc/lxd/shared/linux"
 	"github.com/lxc/lxd/shared/logger"
-	"github.com/lxc/lxd/shared/version"
 )
 
 // Debug controls additional debugging in rsync output.
 var Debug bool
 
 // LocalCopy copies a directory using rsync (with the --devices option).
-func LocalCopy(source string, dest string, bwlimit string, xattrs bool, rsyncArgs ...string) (string, error) {
+func LocalCopy(sysOS *sys.OS, source string, dest string, bwlimit string, xattrs bool, rsyncArgs ...string) (string, error) {
 	err := os.MkdirAll(dest, 0755)
 	if err != nil {
 		return "", err
@@ -65,7 +66,7 @@ func LocalCopy(source string, dest string, bwlimit string, xattrs bool, rsyncArg
 		shared.AddSlash(source),
 		dest)
 
-	msg, err := shared.RunCommand("rsync", args...)
+	msg, err := apparmor.Rsync(sysOS, args, shared.AddSlash(source), dest)
 	if err != nil {
 		runError, ok := err.(shared.RunError)
 		if ok {
@@ -83,7 +84,7 @@ func LocalCopy(source string, dest string, bwlimit string, xattrs bool, rsyncArg
 	return msg, nil
 }
 
-func sendSetup(name string, path string, bwlimit string, execPath string, features []string, rsyncArgs ...string) (*exec.Cmd, net.Conn, io.ReadCloser, error) {
+func sendSetup(sysOS *sys.OS, name string, path string, bwlimit string, execPath string, features []string, rsyncArgs ...string) (*exec.Cmd, net.Conn, io.ReadCloser, error) {
 	/*
 	 * The way rsync works, it invokes a subprocess that does the actual
 	 * talking (given to it by a -E argument). Since there isn't an easy
@@ -138,7 +139,7 @@ func sendSetup(name string, path string, bwlimit string, execPath string, featur
 	}
 
 	if len(features) > 0 {
-		args = append(args, rsyncFeatureArgs(features)...)
+		args = append(args, rsyncFeatureArgs(sysOS, features)...)
 	}
 
 	if len(rsyncArgs) > 0 {
@@ -151,7 +152,27 @@ func sendSetup(name string, path string, bwlimit string, execPath string, featur
 		"-e",
 		rsyncCmd}...)
 
-	cmd := exec.Command("rsync", args...)
+	allowedCmdPaths := []string{}
+	for _, c := range []string{"rsync", "dash", "lxd"} {
+		cmdPath, err := exec.LookPath(c)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("Failed to find executable %q: %w", c, err)
+		}
+
+		allowedCmdPaths = append(allowedCmdPaths, cmdPath)
+	}
+
+	err = apparmor.RsyncProfileLoad(sysOS, path, "", allowedCmdPaths)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("Failed to start rsync: Failed to load profile: %w", err)
+	}
+
+	defer func() { _ = apparmor.RsyncProfileDelete(sysOS, path) }()
+	defer func() { _ = apparmor.RsyncProfileUnload(sysOS, path) }()
+
+	profileName := apparmor.GetRsyncProfileName(path)
+	newArgs := append([]string{"-p", profileName, "rsync"}, args...)
+	cmd := exec.Command("aa-exec", newArgs...)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -197,8 +218,8 @@ func sendSetup(name string, path string, bwlimit string, execPath string, featur
 
 // Send sets up the sending half of an rsync, to recursively send the
 // directory pointed to by path over the websocket.
-func Send(name string, path string, conn io.ReadWriteCloser, tracker *ioprogress.ProgressTracker, features []string, bwlimit string, execPath string, rsyncArgs ...string) error {
-	cmd, netcatConn, stderr, err := sendSetup(name, path, bwlimit, execPath, features, rsyncArgs...)
+func Send(sysOS *sys.OS, name string, path string, conn io.ReadWriteCloser, tracker *ioprogress.ProgressTracker, features []string, bwlimit string, execPath string, rsyncArgs ...string) error {
+	cmd, netcatConn, stderr, err := sendSetup(sysOS, name, path, bwlimit, execPath, features, rsyncArgs...)
 	if err != nil {
 		return err
 	}
@@ -266,7 +287,16 @@ func Send(name string, path string, conn io.ReadWriteCloser, tracker *ioprogress
 // Recv sets up the receiving half of the websocket to rsync (the other
 // half set up by rsync.Send), putting the contents in the directory specified
 // by path.
-func Recv(path string, conn io.ReadWriteCloser, tracker *ioprogress.ProgressTracker, features []string) error {
+func Recv(sysOS *sys.OS, path string, conn io.ReadWriteCloser, tracker *ioprogress.ProgressTracker, features []string) error {
+	sourcePath := "/foo" + strconv.Itoa(int(time.Now().Unix()))
+	err := apparmor.RsyncProfileLoad(sysOS, sourcePath, path, []string{"rsync"})
+	if err != nil {
+		return fmt.Errorf("Failed to start rsync: Failed to load profile: %w", err)
+	}
+
+	defer func() { _ = apparmor.RsyncProfileDelete(sysOS, sourcePath) }()
+	defer func() { _ = apparmor.RsyncProfileUnload(sysOS, sourcePath) }()
+
 	args := []string{
 		"--server",
 		"-vlogDtpre.iLsfx",
@@ -277,12 +307,13 @@ func Recv(path string, conn io.ReadWriteCloser, tracker *ioprogress.ProgressTrac
 	}
 
 	if len(features) > 0 {
-		args = append(args, rsyncFeatureArgs(features)...)
+		args = append(args, rsyncFeatureArgs(sysOS, features)...)
 	}
 
 	args = append(args, []string{".", path}...)
-
-	cmd := exec.Command("rsync", args...)
+	profileName := apparmor.GetRsyncProfileName(sourcePath)
+	newArgs := append([]string{"-p", profileName, "rsync"}, args...)
+	cmd := exec.Command("aa-exec", newArgs...)
 
 	// Forward from rsync to source.
 	stdout, err := cmd.StdoutPipe()
@@ -360,7 +391,7 @@ func Recv(path string, conn io.ReadWriteCloser, tracker *ioprogress.ProgressTrac
 	return nil
 }
 
-func rsyncFeatureArgs(features []string) []string {
+func rsyncFeatureArgs(sysOS *sys.OS, features []string) []string {
 	args := []string{}
 	if shared.StringInSlice("xattrs", features) {
 		args = append(args, "--xattrs")
@@ -379,33 +410,4 @@ func rsyncFeatureArgs(features []string) []string {
 	}
 
 	return args
-}
-
-// AtLeast compares the local version to a minimum version.
-func AtLeast(min string) bool {
-	// Parse the current version.
-	out, err := shared.RunCommand("rsync", "--version")
-	if err != nil {
-		return false
-	}
-
-	fields := strings.Split(strings.Split(out, "\n")[0], "  ")
-	if len(fields) < 3 {
-		return false
-	}
-
-	versionStr := strings.TrimPrefix(fields[1], "version ")
-
-	ver, err := version.Parse(versionStr)
-	if err != nil {
-		return false
-	}
-
-	// Load minium version.
-	minVer, err := version.NewDottedVersion(min)
-	if err != nil {
-		return false
-	}
-
-	return ver.Compare(minVer) >= 0
 }

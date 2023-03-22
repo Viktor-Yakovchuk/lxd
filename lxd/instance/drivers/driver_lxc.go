@@ -5445,7 +5445,7 @@ func (d *lxc) MigrateSend(args instance.MigrateSendArgs) error {
 			// parallel. In the future when we're using p.haul's protocol, it will make sense
 			// to do these in parallel.
 			ctName, _, _ := api.GetParentAndSnapshotName(d.Name())
-			err = rsync.Send(ctName, shared.AddSlash(checkpointDir), args.StateConn, nil, rsyncFeatures, rsyncBwlimit, d.state.OS.ExecPath)
+			err = rsync.Send(d.state.OS, ctName, shared.AddSlash(checkpointDir), args.StateConn, nil, rsyncFeatures, rsyncBwlimit, d.state.OS.ExecPath)
 			if err != nil {
 				return err
 			}
@@ -5533,7 +5533,7 @@ func (d *lxc) migrateSendPreDumpLoop(args *preDumpLoopArgs) (bool, error) {
 
 	// Send the pre-dump.
 	ctName, _, _ := api.GetParentAndSnapshotName(d.Name())
-	err = rsync.Send(ctName, shared.AddSlash(args.checkpointDir), args.stateConn, nil, args.rsyncFeatures, args.bwlimit, d.state.OS.ExecPath)
+	err = rsync.Send(d.state.OS, ctName, shared.AddSlash(args.checkpointDir), args.stateConn, nil, args.rsyncFeatures, args.bwlimit, d.state.OS.ExecPath)
 	if err != nil {
 		return final, err
 	}
@@ -6031,7 +6031,7 @@ func (d *lxc) MigrateReceive(args instance.MigrateReceiveArgs) error {
 					d.logger.Debug("Waiting to receive pre-dump rsync")
 
 					// Transfer a CRIU pre-dump.
-					err = rsync.Recv(shared.AddSlash(imagesDir), args.StateConn, nil, rsyncFeatures)
+					err = rsync.Recv(d.state.OS, shared.AddSlash(imagesDir), args.StateConn, nil, rsyncFeatures)
 					if err != nil {
 						return fmt.Errorf("Failed receiving pre-dump rsync: %w", err)
 					}
@@ -6061,7 +6061,7 @@ func (d *lxc) MigrateReceive(args instance.MigrateReceiveArgs) error {
 
 			// Final CRIU dump.
 			d.logger.Debug("About to receive final dump rsync")
-			err = rsync.Recv(shared.AddSlash(imagesDir), args.StateConn, nil, rsyncFeatures)
+			err = rsync.Recv(d.state.OS, shared.AddSlash(imagesDir), args.StateConn, nil, rsyncFeatures)
 			if err != nil {
 				return fmt.Errorf("Failed receiving final dump rsync: %w", err)
 			}

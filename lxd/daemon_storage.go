@@ -244,7 +244,7 @@ func daemonStorageMove(s *state.State, storageType string, target string) error 
 
 	moveContent := func(source string, target string) error {
 		// Copy the content.
-		_, err := rsync.LocalCopy(source, target, "", false)
+		_, err := rsync.LocalCopy(s.OS, source, target, "", false)
 		if err != nil {
 			return err
 		}

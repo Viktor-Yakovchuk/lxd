@@ -149,17 +149,17 @@ func (d *dir) CreateVolumeFromCopy(vol Volume, srcVol Volume, copySnapshots bool
 	}
 
 	// Run the generic copy.
-	return genericVFSCopyVolume(d, d.setupInitialQuota, vol, srcVol, srcSnapshots, false, allowInconsistent, op)
+	return genericVFSCopyVolume(d.state.OS, d, d.setupInitialQuota, vol, srcVol, srcSnapshots, false, allowInconsistent, op)
 }
 
 // CreateVolumeFromMigration creates a volume being sent via a migration.
 func (d *dir) CreateVolumeFromMigration(vol Volume, conn io.ReadWriteCloser, volTargetArgs migration.VolumeTargetArgs, preFiller *VolumeFiller, op *operations.Operation) error {
-	return genericVFSCreateVolumeFromMigration(d, d.setupInitialQuota, vol, conn, volTargetArgs, preFiller, op)
+	return genericVFSCreateVolumeFromMigration(d.state.OS, d, d.setupInitialQuota, vol, conn, volTargetArgs, preFiller, op)
 }
 
 // RefreshVolume provides same-pool volume and specific snapshots syncing functionality.
 func (d *dir) RefreshVolume(vol Volume, srcVol Volume, srcSnapshots []Volume, allowInconsistent bool, op *operations.Operation) error {
-	return genericVFSCopyVolume(d, d.setupInitialQuota, vol, srcVol, srcSnapshots, true, allowInconsistent, op)
+	return genericVFSCopyVolume(d.state.OS, d, d.setupInitialQuota, vol, srcVol, srcSnapshots, true, allowInconsistent, op)
 }
 
 // DeleteVolume deletes a volume of the storage device. If any snapshots of the volume remain then
@@ -442,7 +442,7 @@ func (d *dir) CreateVolumeSnapshot(snapVol Volume, op *operations.Operation) err
 		d.Logger().Debug("Copying fileystem volume", logger.Ctx{"sourcePath": srcPath, "targetPath": snapPath, "bwlimit": bwlimit, "rsyncArgs": rsyncArgs})
 
 		// Copy filesystem volume into snapshot directory.
-		_, err = rsync.LocalCopy(srcPath, snapPath, bwlimit, true, rsyncArgs...)
+		_, err = rsync.LocalCopy(d.state.OS, srcPath, snapPath, bwlimit, true, rsyncArgs...)
 		if err != nil {
 			return err
 		}
@@ -574,7 +574,8 @@ func (d *dir) RestoreVolume(vol Volume, snapshotName string, op *operations.Oper
 		}
 
 		bwlimit := d.config["rsync.bwlimit"]
-		_, err := rsync.LocalCopy(srcPath, volPath, bwlimit, true, rsyncArgs...)
+		_, err = rsync.LocalCopy(d.state.OS, srcPath, volPath, bwlimit, true, rsyncArgs...)
+
 		if err != nil {
 			return fmt.Errorf("Failed to rsync volume: %w", err)
 		}

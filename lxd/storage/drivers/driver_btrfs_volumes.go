@@ -485,7 +485,7 @@ func (d *btrfs) CreateVolumeFromCopy(vol Volume, srcVol Volume, copySnapshots bo
 func (d *btrfs) CreateVolumeFromMigration(vol Volume, conn io.ReadWriteCloser, volTargetArgs migration.VolumeTargetArgs, preFiller *VolumeFiller, op *operations.Operation) error {
 	// Handle simple rsync and block_and_rsync through generic.
 	if volTargetArgs.MigrationType.FSType == migration.MigrationFSType_RSYNC || volTargetArgs.MigrationType.FSType == migration.MigrationFSType_BLOCK_AND_RSYNC {
-		return genericVFSCreateVolumeFromMigration(d, nil, vol, conn, volTargetArgs, preFiller, op)
+		return genericVFSCreateVolumeFromMigration(d.state.OS, d, nil, vol, conn, volTargetArgs, preFiller, op)
 	} else if volTargetArgs.MigrationType.FSType != migration.MigrationFSType_BTRFS {
 		return ErrNotSupported
 	}
@@ -772,7 +772,7 @@ func (d *btrfs) RefreshVolume(vol Volume, srcVol Volume, srcSnapshots []Volume, 
 	// as btrfs can then use an incremental streams instead of just copying the datasets.
 	if len(targetSnapshots) == 0 || len(srcSnapshotsAll) == 0 {
 		d.logger.Debug("Performing generic volume refresh")
-		return genericVFSCopyVolume(d, nil, vol, srcVol, srcSnapshots, true, false, op)
+		return genericVFSCopyVolume(d.state.OS, d, nil, vol, srcVol, srcSnapshots, true, false, op)
 	}
 
 	d.logger.Debug("Performing optimized volume refresh")

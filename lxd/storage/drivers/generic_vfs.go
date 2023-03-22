@@ -170,7 +170,7 @@ func genericVFSMigrateVolume(d Driver, s *state.State, vol Volume, conn io.ReadW
 		path := shared.AddSlash(mountPath)
 
 		d.Logger().Debug("Sending filesystem volume", logger.Ctx{"volName": vol.name, "path": path, "bwlimit": bwlimit, "rsyncArgs": rsyncArgs})
-		err := rsync.Send(vol.name, path, conn, wrapper, volSrcArgs.MigrationType.Features, bwlimit, s.OS.ExecPath, rsyncArgs...)
+		err := rsync.Send(s.OS, vol.name, path, conn, wrapper, volSrcArgs.MigrationType.Features, bwlimit, s.OS.ExecPath, rsyncArgs...)
 
 		status, _ := shared.ExitStatus(err)
 		if volSrcArgs.AllowInconsistent && status == 24 {
@@ -277,7 +277,7 @@ func genericVFSMigrateVolume(d Driver, s *state.State, vol Volume, conn io.ReadW
 
 // genericVFSCreateVolumeFromMigration receives a volume and its snapshots over a non-optimized method.
 // initVolume is run against the main volume (not the snapshots) and is often used for quota initialization.
-func genericVFSCreateVolumeFromMigration(d Driver, initVolume func(vol Volume) (revert.Hook, error), vol Volume, conn io.ReadWriteCloser, volTargetArgs migration.VolumeTargetArgs, preFiller *VolumeFiller, op *operations.Operation) error {
+func genericVFSCreateVolumeFromMigration(sysOS *sys.OS, d Driver, initVolume func(vol Volume) (revert.Hook, error), vol Volume, conn io.ReadWriteCloser, volTargetArgs migration.VolumeTargetArgs, preFiller *VolumeFiller, op *operations.Operation) error {
 	// Check migration transport type matches volume type.
 	if vol.contentType == ContentTypeBlock {
 		if volTargetArgs.MigrationType.FSType != migration.MigrationFSType_BLOCK_AND_RSYNC {
@@ -309,7 +309,7 @@ func genericVFSCreateVolumeFromMigration(d Driver, initVolume func(vol Volume) (
 		d.Logger().Debug("Receiving filesystem volume started", logger.Ctx{"volName": volName, "path": path})
 		defer d.Logger().Debug("Receiving filesystem volume stopped", logger.Ctx{"volName": volName, "path": path})
 
-		return rsync.Recv(path, conn, wrapper, volTargetArgs.MigrationType.Features)
+		return rsync.Recv(sysOS, path, conn, wrapper, volTargetArgs.MigrationType.Features)
 	}
 
 	recvBlockVol := func(volName string, conn io.ReadWriteCloser, path string) error {
@@ -922,7 +922,7 @@ func genericVFSBackupUnpack(d Driver, sysOS *sys.OS, vol Volume, snapshots []str
 
 // genericVFSCopyVolume copies a volume and its snapshots using a non-optimized method.
 // initVolume is run against the main volume (not the snapshots) and is often used for quota initialization.
-func genericVFSCopyVolume(d Driver, initVolume func(vol Volume) (revert.Hook, error), vol Volume, srcVol Volume, srcSnapshots []Volume, refresh bool, allowInconsistent bool, op *operations.Operation) error {
+func genericVFSCopyVolume(sysOS *sys.OS, d Driver, initVolume func(vol Volume) (revert.Hook, error), vol Volume, srcVol Volume, srcSnapshots []Volume, refresh bool, allowInconsistent bool, op *operations.Operation) error {
 	if vol.contentType != srcVol.contentType {
 		return fmt.Errorf("Content type of source and target must be the same")
 	}
@@ -951,7 +951,7 @@ func genericVFSCopyVolume(d Driver, initVolume func(vol Volume) (revert.Hook, er
 	// Define function to send a filesystem volume.
 	sendFSVol := func(srcPath string, targetPath string) error {
 		d.Logger().Debug("Copying fileystem volume", logger.Ctx{"sourcePath": srcPath, "targetPath": targetPath, "bwlimit": bwlimit, "rsyncArgs": rsyncArgs})
-		_, err := rsync.LocalCopy(srcPath, targetPath, bwlimit, true, rsyncArgs...)
+		_, err := rsync.LocalCopy(sysOS, srcPath, targetPath, bwlimit, true, rsyncArgs...)
 
 		status, _ := shared.ExitStatus(err)
 		if allowInconsistent && status == 24 {
